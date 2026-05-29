@@ -18,9 +18,9 @@ function saveLocal(set: Set<string>) {
 
 export function useFavorites() {
   const [favorites, setFavorites] = useState<Set<string>>(loadLocal)
-  const [synced, setSynced] = useState(false)
+  const [synced,    setSynced]    = useState(false)
 
-  // Fetch favorites from Supabase on mount and merge with local
+  // try to sync from Supabase — silently skip if favorites table doesn't exist yet
   useEffect(() => {
     const sessionId = getSessionId()
     supabase
@@ -28,7 +28,7 @@ export function useFavorites() {
       .select('api_key')
       .eq('session_id', sessionId)
       .then(({ data, error }) => {
-        if (error || !data) return
+        if (error || !data) { setSynced(true); return }
         setFavorites(prev => {
           const merged = new Set([...prev, ...data.map((r: { api_key: string }) => r.api_key)])
           saveLocal(merged)
@@ -40,27 +40,22 @@ export function useFavorites() {
 
   const toggle = useCallback(async (key: string) => {
     const sessionId = getSessionId()
+    let removing = false
     setFavorites(prev => {
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
+      if (next.has(key)) { next.delete(key); removing = true }
       else next.add(key)
       saveLocal(next)
       return next
     })
 
-    const isFav = favorites.has(key)
-    if (isFav) {
-      await supabase
-        .from('favorites')
-        .delete()
-        .eq('session_id', sessionId)
-        .eq('api_key', key)
+    // best-effort Supabase sync — ignore errors if table missing
+    if (removing) {
+      await supabase.from('favorites').delete().eq('session_id', sessionId).eq('api_key', key)
     } else {
-      await supabase
-        .from('favorites')
-        .insert({ session_id: sessionId, api_key: key })
+      await supabase.from('favorites').insert({ session_id: sessionId, api_key: key })
     }
-  }, [favorites])
+  }, [])
 
   const isFavorite = useCallback((key: string) => favorites.has(key), [favorites])
 

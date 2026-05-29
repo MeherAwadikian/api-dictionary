@@ -25,28 +25,24 @@ export function PaymentPage({ user, trialDaysLeft, onAccessGranted, signOut }: P
     setLoading(true)
 
     const result = await verifyUsdtPayment(txHash.trim())
+    if (!result.ok) { setError(result.reason); setLoading(false); return }
 
-    if (!result.ok) {
-      setError(result.reason)
-      setLoading(false)
-      return
-    }
+    // persist paid status in Supabase Auth user metadata — no table needed
+    const { error: authErr } = await supabase.auth.updateUser({
+      data: {
+        paid: true,
+        payment_tx: txHash.trim(),
+        payment_verified_at: new Date().toISOString(),
+      },
+    })
 
-    // Mark paid in Supabase
-    const { error: dbErr } = await supabase
-      .from('user_profiles')
-      .update({ paid: true, payment_tx: txHash.trim(), payment_verified_at: new Date().toISOString() })
-      .eq('id', user.id)
-
-    if (dbErr) {
-      setError('Payment verified but failed to save. Contact support.')
-      setLoading(false)
-      return
-    }
+    if (authErr) { setError('Payment verified but could not save. Try again.'); setLoading(false); return }
 
     setVerified(true)
     setLoading(false)
-    setTimeout(onAccessGranted, 1800)
+    // refresh session so updated metadata propagates to useAccess
+    await supabase.auth.refreshSession()
+    setTimeout(onAccessGranted, 1600)
   }
 
   const trialExpired = trialDaysLeft === 0
@@ -55,7 +51,6 @@ export function PaymentPage({ user, trialDaysLeft, onAccessGranted, signOut }: P
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
 
-        {/* Header */}
         <div className="text-center mb-8">
           <span className="text-5xl">📚</span>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mt-3">API Dictionary</h1>
@@ -74,51 +69,54 @@ export function PaymentPage({ user, trialDaysLeft, onAccessGranted, signOut }: P
         <div className="bg-white dark:bg-gray-900 rounded-3xl shadow-xl border border-gray-200 dark:border-gray-800 p-8 space-y-6">
 
           {verified ? (
-            <div className="text-center py-6 space-y-3">
-              <div className="text-5xl">✅</div>
+            <div className="text-center py-8 space-y-3">
+              <div className="text-6xl">✅</div>
               <h2 className="text-xl font-bold text-emerald-600 dark:text-emerald-400">Payment Verified!</h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">Unlocking full access…</p>
             </div>
           ) : (
             <>
-              {/* Pricing */}
+              {/* Price */}
               <div className="text-center p-5 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-2xl border border-blue-100 dark:border-blue-800">
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">One-time payment</p>
-                <p className="text-4xl font-bold text-gray-900 dark:text-white">5 <span className="text-blue-600 dark:text-blue-400">USDT</span></p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Lifetime access · ERC-20 on Ethereum</p>
+                <p className="text-4xl font-bold text-gray-900 dark:text-white">
+                  5 <span className="text-blue-600 dark:text-blue-400">USDT</span>
+                </p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Lifetime access · ERC-20 on Ethereum mainnet</p>
               </div>
 
-              {/* Wallet */}
+              {/* Wallet address */}
               <div>
                 <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                  Send exactly <span className="text-blue-600 dark:text-blue-400">5 USDT</span> to:
+                  Send exactly <span className="text-blue-600 dark:text-blue-400 font-bold">5 USDT</span> to:
                 </p>
                 <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3">
-                  <code className="flex-1 text-xs text-gray-700 dark:text-gray-300 break-all font-mono">
+                  <code className="flex-1 text-xs text-gray-800 dark:text-gray-200 break-all font-mono leading-relaxed">
                     {RECEIVER}
                   </code>
                   <CopyButton getText={() => RECEIVER} label="Copy" className="shrink-0" />
                 </div>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                  ⚠️ ERC-20 USDT on Ethereum mainnet only. Other networks will not be detected.
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-start gap-1">
+                  <span>⚠️</span>
+                  <span>ERC-20 USDT on Ethereum mainnet only. Other networks will not be detected.</span>
                 </p>
               </div>
 
               {/* Steps */}
-              <div className="space-y-2">
+              <ol className="space-y-2">
                 {[
-                  'Send 5 USDT (ERC-20) to the address above',
-                  'Wait for the transaction to confirm (~1 min)',
-                  'Paste the transaction hash below and click Verify',
+                  'Send 5 USDT (ERC-20) to the wallet address above',
+                  'Wait ~1 minute for the transaction to confirm on-chain',
+                  'Copy the transaction hash and paste it below',
                 ].map((step, i) => (
-                  <div key={i} className="flex items-start gap-3 text-sm text-gray-600 dark:text-gray-400">
+                  <li key={i} className="flex items-start gap-3 text-sm text-gray-600 dark:text-gray-400">
                     <span className="w-5 h-5 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
                       {i + 1}
                     </span>
                     {step}
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ol>
 
               {/* Verify form */}
               <form onSubmit={verify} className="space-y-3">
