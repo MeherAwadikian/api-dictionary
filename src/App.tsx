@@ -8,17 +8,33 @@ import { ApiCard } from './components/ApiCard';
 import { ApiModal } from './components/ApiModal';
 import { useFavorites } from './hooks/useFavorites';
 import { useDarkMode } from './hooks/useDarkMode';
+import { useAuth } from './hooks/useAuth';
+import { useAccess } from './hooks/useAccess';
+import { AuthPage } from './pages/AuthPage';
+import { PaymentPage } from './pages/PaymentPage';
 
 const apis = rawApis as ApiEntry[];
-
 const DEFAULT_FILTERS: Filters = { category: '', auth: '', httpsOnly: false, corsSupport: '' };
 
 function favKey(api: ApiEntry) {
   return `${api.category}::${api.name}`;
 }
 
+function Spinner() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading…</p>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
+  const { user, loading: authLoading, signOut } = useAuth();
+  const { hasAccess, trialDaysLeft, paid, checking, refresh } = useAccess(user);
   const { isFavorite, toggle: toggleFavorite, synced } = useFavorites();
 
   const [search, setSearch] = useState('');
@@ -27,6 +43,19 @@ export default function App() {
   const [showFavorites, setShowFavorites] = useState(false);
   const [selectedApi, setSelectedApi] = useState<ApiEntry | null>(null);
 
+  // ── Auth gates ──────────────────────────────────────────────────────────────
+  if (authLoading || checking) return <Spinner />;
+  if (!user) return <AuthPage />;
+  if (!hasAccess) return (
+    <PaymentPage
+      user={user}
+      trialDaysLeft={trialDaysLeft}
+      onAccessGranted={refresh}
+      signOut={signOut}
+    />
+  );
+
+  // ── Dictionary ───────────────────────────────────────────────────────────────
   const categories = useMemo(() => {
     const map: Record<string, number> = {};
     for (const api of apis) map[api.category] = (map[api.category] ?? 0) + 1;
@@ -35,9 +64,7 @@ export default function App() {
       .map(([name, count]) => ({ name, count }));
   }, []);
 
-  const authTypes = useMemo(() => {
-    return [...new Set(apis.map(a => a.auth))].sort();
-  }, []);
+  const authTypes = useMemo(() => [...new Set(apis.map(a => a.auth))].sort(), []);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -62,11 +89,6 @@ export default function App() {
     setShowFavorites(false);
   };
 
-  const handleToggleFavorites = () => {
-    setShowFavorites(f => !f);
-    if (!showFavorites) setSelectedCategory('');
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors">
       {/* Header */}
@@ -74,32 +96,57 @@ export default function App() {
         <div className="max-w-screen-xl mx-auto px-4 py-3 flex items-center gap-4">
           <div className="flex items-center gap-2 shrink-0">
             <span className="text-2xl">📚</span>
-            <span className="font-bold text-lg text-gray-900 dark:text-gray-100 hidden sm:block">API Dictionary</span>
+            <span className="font-bold text-lg hidden sm:block">API Dictionary</span>
           </div>
+
           <SearchBar value={search} onChange={setSearch} />
+
+          {/* Sync indicator */}
           <span
-            title={synced ? 'Favorites synced to Supabase' : 'Syncing favorites…'}
+            title={synced ? 'Favorites synced' : 'Syncing…'}
             className={`hidden sm:inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${
               synced
                 ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-400'
             }`}
           >
             <span className={`w-1.5 h-1.5 rounded-full ${synced ? 'bg-emerald-500' : 'bg-gray-400 animate-pulse'}`} />
             {synced ? 'Synced' : 'Syncing…'}
           </span>
+
+          {/* Trial badge */}
+          {!paid && (
+            <span className="hidden sm:inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
+              🆓 {trialDaysLeft}d left
+            </span>
+          )}
+
+          {/* Dark mode */}
           <button
             onClick={toggleDark}
-            title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={dark ? 'Light mode' : 'Dark mode'}
             className="shrink-0 p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-lg"
           >
             {dark ? '☀️' : '🌙'}
           </button>
+
+          {/* User menu */}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="hidden md:block text-xs text-gray-500 dark:text-gray-400 truncate max-w-[140px]">
+              {user.email}
+            </span>
+            <button
+              onClick={signOut}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       </header>
 
       <div className="max-w-screen-xl mx-auto px-4 py-6 flex gap-6">
-        {/* Sidebar — hidden on mobile */}
+        {/* Sidebar */}
         <div className="hidden lg:block">
           <CategorySidebar
             categories={categories}
@@ -107,7 +154,10 @@ export default function App() {
             onSelect={handleCategorySelect}
             favCount={favCount}
             showFavorites={showFavorites}
-            onToggleFavorites={handleToggleFavorites}
+            onToggleFavorites={() => {
+              setShowFavorites(f => !f);
+              if (!showFavorites) setSelectedCategory('');
+            }}
           />
         </div>
 
@@ -144,14 +194,10 @@ export default function App() {
             ))}
           </div>
 
-          {/* Section heading */}
-          <div>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">
-              {showFavorites ? 'Favorites' : selectedCategory || 'All APIs'}
-            </h1>
-          </div>
+          <h1 className="text-lg font-bold">
+            {showFavorites ? 'Favorites' : selectedCategory || 'All APIs'}
+          </h1>
 
-          {/* Filters */}
           <FilterBar
             filters={filters}
             onChange={setFilters}
@@ -160,7 +206,6 @@ export default function App() {
             totalCount={apis.length}
           />
 
-          {/* Grid */}
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 gap-3 text-gray-400 dark:text-gray-600">
               <span className="text-5xl">🔍</span>
