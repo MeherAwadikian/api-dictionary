@@ -17,23 +17,58 @@ export function AuthPage() {
     setSuccess('')
     setLoading(true)
 
-    if (mode === 'login') {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) setError(error.message)
-    } else {
-      const { error } = await supabase.auth.signUp({ email, password })
-      if (error) setError(error.message)
-      else setSuccess('Account created! Check your email to confirm, or sign in directly.')
+    try {
+      // Route through Cloudflare Function so the service key is used server-side
+      const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/register'
+      const res  = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = await res.json() as Record<string, unknown>
+
+      if (!res.ok) {
+        const msg = (data.error_description ?? data.msg ?? data.message ?? 'Authentication failed.') as string
+        setError(msg)
+        setLoading(false)
+        return
+      }
+
+      if (mode === 'register') {
+        setSuccess('Account created — signing you in…')
+        // auto sign-in after register
+        const loginRes  = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        })
+        const loginData = await loginRes.json() as Record<string, unknown>
+        if (loginRes.ok) {
+          await supabase.auth.setSession({
+            access_token:  loginData.access_token as string,
+            refresh_token: loginData.refresh_token as string,
+          })
+        }
+      } else {
+        await supabase.auth.setSession({
+          access_token:  data.access_token as string,
+          refresh_token: data.refresh_token as string,
+        })
+      }
+    } catch {
+      setError('Network error — please try again.')
     }
 
     setLoading(false)
   }
 
+  const switchMode = (m: Mode) => { setMode(m); setError(''); setSuccess('') }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-center justify-center p-4">
       <div className="w-full max-w-4xl flex rounded-3xl shadow-2xl overflow-hidden bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
 
-        {/* Left panel */}
+        {/* Left branding panel */}
         <div className="hidden md:flex flex-col justify-between w-1/2 bg-gradient-to-br from-blue-600 to-indigo-700 p-10 text-white">
           <div>
             <div className="flex items-center gap-3 mb-10">
@@ -47,7 +82,6 @@ export function AuthPage() {
               Search 150+ APIs, copy ready-to-use prompts, and save your favorites — all in one place.
             </p>
           </div>
-
           <div className="space-y-3 text-sm">
             {[
               ['🔍', 'Instant search across all APIs'],
@@ -56,14 +90,13 @@ export function AuthPage() {
               ['🆓', '7-day free trial, then 5 USDT once'],
             ].map(([icon, text]) => (
               <div key={text} className="flex items-center gap-3 text-blue-100">
-                <span>{icon}</span>
-                <span>{text}</span>
+                <span>{icon}</span><span>{text}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Right panel */}
+        {/* Right form panel */}
         <div className="flex-1 p-8 flex flex-col justify-center">
           <div className="mb-8 text-center md:text-left">
             <div className="flex items-center gap-2 justify-center md:justify-start mb-2 md:hidden">
@@ -83,7 +116,7 @@ export function AuthPage() {
             {(['login', 'register'] as Mode[]).map(m => (
               <button
                 key={m}
-                onClick={() => { setMode(m); setError(''); setSuccess('') }}
+                onClick={() => switchMode(m)}
                 className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
                   mode === m
                     ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
@@ -97,28 +130,17 @@ export function AuthPage() {
 
           <form onSubmit={submit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Email
-              </label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
               <input
-                type="email"
-                required
-                value={email}
-                onChange={e => setEmail(e.target.value)}
+                type="email" required value={email} onChange={e => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Password
-              </label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
               <input
-                type="password"
-                required
-                minLength={6}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
+                type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
               />
@@ -136,8 +158,7 @@ export function AuthPage() {
             )}
 
             <button
-              type="submit"
-              disabled={loading}
+              type="submit" disabled={loading}
               className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold text-sm transition-colors"
             >
               {loading ? 'Please wait…' : mode === 'login' ? 'Sign In' : 'Create Account'}
