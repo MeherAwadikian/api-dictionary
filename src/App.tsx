@@ -19,7 +19,7 @@ function favKey(api: ApiEntry) {
 
 export default function App() {
   const { dark, toggle: toggleDark } = useDarkMode();
-  const { isFavorite, toggle: toggleFavorite } = useFavorites();
+  const { isFavorite, toggle: toggleFavorite, synced } = useFavorites();
 
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -77,6 +77,17 @@ export default function App() {
             <span className="font-bold text-lg text-gray-900 dark:text-gray-100 hidden sm:block">API Dictionary</span>
           </div>
           <SearchBar value={search} onChange={setSearch} />
+          <span
+            title={synced ? 'Favorites synced to Supabase' : 'Syncing favorites…'}
+            className={`hidden sm:inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${
+              synced
+                ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${synced ? 'bg-emerald-500' : 'bg-gray-400 animate-pulse'}`} />
+            {synced ? 'Synced' : 'Syncing…'}
+          </span>
           <button
             onClick={toggleDark}
             title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
