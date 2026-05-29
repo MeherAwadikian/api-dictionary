@@ -1,7 +1,23 @@
 import { useState, type FormEvent } from 'react'
-import { supabase } from '../lib/supabase'
 
 type Mode = 'login' | 'register'
+
+// Derive the Supabase localStorage key from the project URL
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string
+const PROJECT_REF  = new URL(SUPABASE_URL).hostname.split('.')[0]
+const STORAGE_KEY  = `sb-${PROJECT_REF}-auth-token`
+
+function storeSession(d: Record<string, unknown>) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    access_token:  d.access_token,
+    refresh_token: d.refresh_token,
+    expires_in:    d.expires_in,
+    expires_at:    d.expires_at,
+    token_type:    'bearer',
+    user:          d.user,
+  }))
+  window.location.reload()
+}
 
 export function AuthPage() {
   const [mode,     setMode]     = useState<Mode>('login')
@@ -43,17 +59,9 @@ export function AuthPage() {
           body: JSON.stringify({ email, password }),
         })
         const loginData = await loginRes.json() as Record<string, unknown>
-        if (loginRes.ok) {
-          await supabase.auth.setSession({
-            access_token:  loginData.access_token as string,
-            refresh_token: loginData.refresh_token as string,
-          })
-        }
+        if (loginRes.ok) storeSession(loginData)
       } else {
-        await supabase.auth.setSession({
-          access_token:  data.access_token as string,
-          refresh_token: data.refresh_token as string,
-        })
+        storeSession(data)
       }
     } catch {
       setError('Network error — please try again.')
