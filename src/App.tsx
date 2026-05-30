@@ -43,19 +43,7 @@ export default function App() {
   const [showFavorites, setShowFavorites] = useState(false);
   const [selectedApi, setSelectedApi] = useState<ApiEntry | null>(null);
 
-  // ── Auth gates ──────────────────────────────────────────────────────────────
-  if (authLoading || checking) return <Spinner />;
-  if (!user) return <AuthPage />;
-  if (!hasAccess) return (
-    <PaymentPage
-      user={user}
-      trialDaysLeft={trialDaysLeft}
-      onAccessGranted={refresh}
-      signOut={signOut}
-    />
-  );
-
-  // ── Dictionary ───────────────────────────────────────────────────────────────
+  // ── All hooks must run before any early return ───────────────────────────────
   const categories = useMemo(() => {
     const map: Record<string, number> = {};
     for (const api of apis) map[api.category] = (map[api.category] ?? 0) + 1;
@@ -83,6 +71,18 @@ export default function App() {
   }, [search, filters, selectedCategory, showFavorites, isFavorite]);
 
   const favCount = useMemo(() => apis.filter(a => isFavorite(favKey(a))).length, [isFavorite]);
+
+  // ── Auth gates ──────────────────────────────────────────────────────────────
+  if (authLoading || checking) return <Spinner />;
+  if (!user) return <AuthPage />;
+  if (!hasAccess) return (
+    <PaymentPage
+      user={user}
+      trialDaysLeft={trialDaysLeft}
+      onAccessGranted={refresh}
+      signOut={signOut}
+    />
+  );
 
   const handleCategorySelect = (cat: string) => {
     setSelectedCategory(cat);
